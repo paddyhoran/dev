@@ -7,19 +7,23 @@ use std::path::PathBuf;
 /// once at startup so every command operates from the toplevel regardless of
 /// which worktree it was invoked from.
 pub struct Repo {
+    pub root: PathBuf,
     pub git: Git,
 }
 
 impl Repo {
-    /// Discover the repo containing the current working directory.
+    /// Discover the repo containing the current working directory. `root` is
+    /// the toplevel of whichever worktree the command was invoked from — not
+    /// necessarily the main worktree, see `is_main_worktree`.
     pub fn discover() -> Result<Self> {
         let cwd = std::env::current_dir()?;
         let probe = Git::new(&cwd);
         let root = probe
             .run(&["rev-parse", "--show-toplevel"])
             .map_err(|_| DevError::NotInRepo)?;
-        let git = Git::new(PathBuf::from(root));
-        Ok(Self { git })
+        let root = PathBuf::from(root);
+        let git = Git::new(&root);
+        Ok(Self { root, git })
     }
 
     pub fn current_branch(&self) -> Result<String> {
@@ -38,5 +42,18 @@ impl Repo {
 
     pub fn is_on_main(&self) -> Result<bool> {
         Ok(self.current_branch()? == self.main_branch()?)
+    }
+
+    /// A linked worktree has its own `--git-dir` (`<common>/worktrees/<name>`)
+    /// distinct from `--git-common-dir` (the shared `.git`); the main
+    /// worktree is the one where they're equal.
+    pub fn is_main_worktree(&self) -> Result<bool> {
+        let git_dir = self
+            .git
+            .run(&["rev-parse", "--path-format=absolute", "--git-dir"])?;
+        let common_dir =
+            self.git
+                .run(&["rev-parse", "--path-format=absolute", "--git-common-dir"])?;
+        Ok(git_dir == common_dir)
     }
 }

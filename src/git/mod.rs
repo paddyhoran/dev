@@ -1,4 +1,5 @@
 mod repo;
+pub mod worktree;
 
 pub use repo::Repo;
 
@@ -39,5 +40,18 @@ impl Git {
         }
 
         Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+    }
+
+    /// Run a git command for its exit status only, e.g. a `--verify` style
+    /// existence check. A clean non-zero exit is `Ok(false)`, not an error —
+    /// only a spawn failure is `Err`.
+    pub fn status_ok(&self, args: &[&str]) -> Result<bool> {
+        let status = Command::new("git")
+            .args(args)
+            .current_dir(&self.cwd)
+            .output()
+            .with_context(|| format!("failed to spawn `git {}`", args.join(" ")))?
+            .status;
+        Ok(status.success())
     }
 }
