@@ -1,7 +1,7 @@
 use super::Git;
 use crate::error::DevError;
 use anyhow::Result;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Handle onto the repo the current working directory belongs to, resolved
 /// once at startup so every command operates from the toplevel regardless of
@@ -12,12 +12,14 @@ pub struct Repo {
 }
 
 impl Repo {
-    /// Discover the repo containing the current working directory. `root` is
-    /// the toplevel of whichever worktree the command was invoked from — not
+    /// Discover the repo containing `start`.
+    ///
+    /// Tests can point at a fixture repo directly instead of mutating the
+    /// process-wide cwd, which would race across parallel tests. `root` is
+    /// the toplevel of whichever worktree `start` is inside of — not
     /// necessarily the main worktree, see `is_main_worktree`.
-    pub fn discover() -> Result<Self> {
-        let cwd = std::env::current_dir()?;
-        let probe = Git::new(&cwd);
+    pub fn discover_from(start: &Path) -> Result<Self> {
+        let probe = Git::new(start);
         let root = probe
             .run(&["rev-parse", "--show-toplevel"])
             .map_err(|_| DevError::NotInRepo)?;
@@ -26,6 +28,7 @@ impl Repo {
         Ok(Self { root, git })
     }
 
+    /// Returns the name of the current branch.
     pub fn current_branch(&self) -> Result<String> {
         self.git.run(&["rev-parse", "--abbrev-ref", "HEAD"])
     }
@@ -40,6 +43,7 @@ impl Repo {
         }
     }
 
+    /// Whether we are currently on the main branch.
     pub fn is_on_main(&self) -> Result<bool> {
         Ok(self.current_branch()? == self.main_branch()?)
     }

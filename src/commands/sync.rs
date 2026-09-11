@@ -2,8 +2,7 @@ use crate::error::DevError;
 use crate::git::Repo;
 use anyhow::Result;
 
-pub fn run() -> Result<()> {
-    let repo = Repo::discover()?;
+pub fn run(repo: &Repo) -> Result<()> {
     if !repo.is_on_main()? {
         return Err(DevError::NotOnMainBranch {
             command: "sync",

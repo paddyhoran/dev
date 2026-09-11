@@ -1,9 +1,7 @@
 use crate::git::{Repo, worktree};
 use anyhow::{Result, bail};
 
-pub fn run(name: &str) -> Result<()> {
-    let repo = Repo::discover()?;
-
+pub fn run(repo: &Repo, name: &str) -> Result<()> {
     if !repo.is_main_worktree()? {
         bail!("`dev new` must be run from the main worktree, not a feature worktree");
     }

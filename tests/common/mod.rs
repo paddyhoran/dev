@@ -1,3 +1,10 @@
+// Each integration test file compiles this module separately and only ever
+// uses a subset of it, so dead_code would false-positive per binary.
+#![allow(dead_code)]
+
+use dev::picker::Prompter;
+use std::cell::RefCell;
+use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use tempfile::TempDir;
@@ -42,6 +49,69 @@ impl Fixture {
             .current_dir(cwd)
             .output()
             .expect("run dev binary")
+    }
+
+    pub fn write_config(&self, contents: &str) {
+        std::fs::write(self.work.join(".dev-config.toml"), contents).expect("write config");
+    }
+
+    /// Run an arbitrary git command in the fixture's working repo, e.g. to
+    /// stage a change before exercising `dev commit`.
+    pub fn git(&self, args: &[&str]) {
+        run_git(&self.work, args);
+    }
+
+    /// Write an executable shell script into the fixture and return its
+    /// path, for use as the `editor` argument to `dev::editor::edit_template`.
+    /// `body` receives the commit-message file's path as `$1`.
+    pub fn write_fake_editor(&self, body: &str) -> PathBuf {
+        let path = self.work.join("fake_editor.sh");
+        std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).expect("write fake editor");
+        let mut perms = std::fs::metadata(&path).unwrap().permissions();
+        std::os::unix::fs::PermissionsExt::set_mode(&mut perms, 0o755);
+        std::fs::set_permissions(&path, perms).unwrap();
+        path
+    }
+
+    pub fn repo(&self) -> dev::git::Repo {
+        dev::git::Repo::discover_from(&self.work).expect("discover fixture repo")
+    }
+}
+
+/// A `Prompter` that returns a fixed issue number and a queue of canned
+/// `select()` answers, so `dev commit`'s flow can run headlessly in tests —
+/// `dialoguer::Select` itself needs a real TTY and can't be driven this way.
+pub struct ScriptedPrompter {
+    issue_number: Option<u64>,
+    selections: RefCell<VecDeque<String>>,
+    /// `(label, options)` for every `select()` call, in order — lets tests
+    /// assert the picker was only ever offered the configured values.
+    pub seen: RefCell<Vec<(String, Vec<String>)>>,
+}
+
+impl ScriptedPrompter {
+    pub fn new(issue_number: Option<u64>, selections: &[&str]) -> Self {
+        Self {
+            issue_number,
+            selections: RefCell::new(selections.iter().map(|s| s.to_string()).collect()),
+            seen: RefCell::new(Vec::new()),
+        }
+    }
+}
+
+impl Prompter for ScriptedPrompter {
+    fn ask_issue_number(&self) -> anyhow::Result<Option<u64>> {
+        Ok(self.issue_number)
+    }
+
+    fn select(&self, label: &str, options: &[String]) -> anyhow::Result<String> {
+        self.seen
+            .borrow_mut()
+            .push((label.to_string(), options.to_vec()));
+        self.selections
+            .borrow_mut()
+            .pop_front()
+            .ok_or_else(|| anyhow::anyhow!("ScriptedPrompter: no scripted answer left"))
     }
 }
 
