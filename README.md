@@ -48,7 +48,13 @@ I use WezTerm workspaces to switch between feature branches.
 
 The command `dev commit` (alias `dev c`) creates a new commit on the current branch,
 matching the [conventional commits](https://www.conventionalcommits.org/en/v1.0.0/)
-format. It takes no arguments — everything is gathered interactively:
+format. It takes no arguments — everything is gathered interactively.
+
+Before asking anything, `dev commit` checks that there's nothing unstaged or
+untracked sitting in the working tree — stage exactly what you mean to commit
+first (`git add`), or it'll ask you to sort that out before continuing.
+
+Then:
 
 1. **Issue number** — you're asked for an issue number, or you can leave it blank if
    this change doesn't close one. If you enter something, it must be a plain integer;
@@ -121,13 +127,38 @@ and, once done, force-pushes the feature branch so the remote matches.
 ## 5 - Bumping version numbers
 
 `dev` uses the [Cocogitto](https://docs.cocogitto.io) tool to automatically manage 
-versioning.
+versioning. `dev bump` (alias `dev b`) only runs on `main`, and only with a fully
+clean working tree — commit or stash everything first.
 
-You can use `dev bump`, this will:
+It will:
  - update the changelog and commit it
- - bump the version number
- - create a version tag
- - push to remote (including tags)
+ - bump the version number and create a version tag
+ - sync the new version into a manifest file, if `.dev-config.toml` has a
+   `[version_file]` section (see below) — Cocogitto itself only manages the
+   changelog and tag, it doesn't know how to edit a project's manifest
+ - push to remote (including the new tag)
+
+If nothing has changed since the last bump, `dev bump` says so and exits cleanly
+without pushing anything.
+
+### Syncing a manifest's version field
+
+Since which file holds a project's version (`Cargo.toml`, `package.json`,
+`pyproject.toml`, ...) is language-specific, `dev` doesn't hardcode any of them.
+Instead, `.dev-config.toml` can declare one:
+
+```toml
+[version_file]
+path = "Cargo.toml"
+pattern = '(?m)^version = "([^"]*)"'
+```
+
+`pattern` is a regular expression with exactly one capture group wrapping the
+version text — `dev` replaces whatever that group matches with the new version
+(a leading `v` is stripped automatically, since git tags often have one but
+manifest version fields generally can't). Make sure `pattern` is specific enough
+that it can only match the one line you mean — e.g. a plain `version = "..."`
+could also match a pinned dependency's version elsewhere in the same file.
 
 ## 6 - Finishing a feature branch
 

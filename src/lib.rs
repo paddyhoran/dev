@@ -1,4 +1,5 @@
 pub mod cli;
+pub mod cog;
 pub mod commands;
 pub mod commit_template;
 pub mod config;
@@ -6,6 +7,7 @@ pub mod editor;
 pub mod error;
 pub mod git;
 pub mod picker;
+pub mod version_file;
 
 use anyhow::Result;
 use clap::Parser;

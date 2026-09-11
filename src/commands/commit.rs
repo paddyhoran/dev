@@ -3,7 +3,7 @@ use crate::config::Config;
 use crate::editor;
 use crate::git::Repo;
 use crate::picker::Prompter;
-use anyhow::Result;
+use anyhow::{Result, bail};
 
 pub fn run(repo: &Repo, prompter: &dyn Prompter) -> Result<()> {
     let editor_bin = editor::resolve_editor()?;
@@ -16,6 +16,12 @@ pub fn run(repo: &Repo, prompter: &dyn Prompter) -> Result<()> {
 /// mutating the process-wide `$EDITOR` env var — which would race across
 /// tests running in parallel in the same process.
 pub fn run_with_editor(repo: &Repo, prompter: &dyn Prompter, editor_bin: &str) -> Result<()> {
+    if repo.has_unstaged_or_untracked_changes()? {
+        bail!(
+            "there are unstaged or untracked changes — stage or stash them before running `dev commit`"
+        );
+    }
+
     let config = Config::load(&repo.root)?;
 
     let issue_number = prompter.ask_issue_number()?;

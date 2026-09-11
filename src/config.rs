@@ -9,6 +9,7 @@ pub struct Config {
     pub commit: CommitConfig,
     #[serde(default)]
     pub ticket: TicketConfig,
+    pub version_file: Option<VersionFileConfig>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -33,6 +34,20 @@ impl Default for TicketConfig {
 
 fn default_footer_template() -> String {
     "Fixes: #{number}".to_string()
+}
+
+/// Where `dev bump` should write the post-bump version, for manifests cog
+/// itself doesn't know how to update (it only manages the changelog, tag,
+/// and its own bump commit). `pattern` is a regex with exactly one capture
+/// group wrapping the version text to replace — language-agnostic by
+/// design, so it works for Cargo.toml, package.json, a bare VERSION file,
+/// or anything else, at the cost of the user anchoring the pattern
+/// precisely enough not to match an unrelated `version = "..."` elsewhere
+/// in the file (e.g. a pinned dependency).
+#[derive(Debug, Deserialize)]
+pub struct VersionFileConfig {
+    pub path: String,
+    pub pattern: String,
 }
 
 impl Config {

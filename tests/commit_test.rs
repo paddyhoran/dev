@@ -78,6 +78,7 @@ fn unedited_subject_aborts_without_committing() {
 
     // Leaves the template untouched — subject after the prefix is empty.
     let editor = fx.write_fake_editor(": # no-op, don't touch the file");
+    fx.git(&["add", "-A"]);
 
     let before = log_messages(&fx).len();
     let prompter = ScriptedPrompter::new(None, &["feat", "cli"]);
@@ -85,6 +86,24 @@ fn unedited_subject_aborts_without_committing() {
 
     assert!(result.is_err());
     assert_eq!(log_messages(&fx).len(), before, "no commit should be made");
+}
+
+#[test]
+fn refuses_with_untracked_files_present() {
+    let fx = Fixture::new();
+    fx.write_config(CONFIG);
+    let repo = fx.repo();
+    let editor = fx.write_fake_editor("true"); // never reached
+
+    // fake_editor.sh itself is untracked and deliberately not staged here.
+    let prompter = ScriptedPrompter::new(None, &["feat", "cli"]);
+    let result = dev::commands::commit::run_with_editor(&repo, &prompter, editor.to_str().unwrap());
+
+    assert!(result.is_err());
+    assert!(
+        format!("{:#}", result.unwrap_err()).contains("unstaged or untracked"),
+        "expected the untracked-files precheck to fire, not some later failure"
+    );
 }
 
 #[test]

@@ -60,4 +60,58 @@ impl Repo {
                 .run(&["rev-parse", "--path-format=absolute", "--git-common-dir"])?;
         Ok(git_dir == common_dir)
     }
+
+    /// Whether the worktree has anything unstaged or untracked. Staged
+    /// changes don't count — `dev commit` calls this to make sure nothing
+    /// besides what's deliberately staged is about to be swept into the
+    /// commit, not to demand a fully clean tree (that's `dev bump`'s job).
+    pub fn has_unstaged_or_untracked_changes(&self) -> Result<bool> {
+        let status = self.git.run(&["status", "--porcelain"])?;
+        Ok(porcelain_has_unstaged_or_untracked(&status))
+    }
+}
+
+/// A `git status --porcelain` line is `XY <path>`, where `X` is the status
+/// relative to the index (staged) and `Y` relative to the worktree
+/// (unstaged). Untracked files are reported as `??`. Pulled out of
+/// `has_unstaged_or_untracked_changes` so it's unit-testable against sample
+/// porcelain output without a real repo.
+fn porcelain_has_unstaged_or_untracked(status: &str) -> bool {
+    status.lines().any(|line| {
+        let code = line.as_bytes();
+        code.first() == Some(&b'?') || code.get(1).is_some_and(|&y| y != b' ')
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn clean_status_has_no_unstaged_or_untracked() {
+        assert!(!porcelain_has_unstaged_or_untracked(""));
+    }
+
+    #[test]
+    fn staged_only_is_fine() {
+        assert!(!porcelain_has_unstaged_or_untracked(
+            "M  staged.txt\nA  new.txt"
+        ));
+    }
+
+    #[test]
+    fn unstaged_modification_is_flagged() {
+        assert!(porcelain_has_unstaged_or_untracked(" M unstaged.txt"));
+    }
+
+    #[test]
+    fn untracked_file_is_flagged() {
+        assert!(porcelain_has_unstaged_or_untracked("?? new.txt"));
+    }
+
+    #[test]
+    fn staged_plus_unstaged_on_same_file_is_flagged() {
+        // Staged one hunk, then edited further without re-staging.
+        assert!(porcelain_has_unstaged_or_untracked("MM both.txt"));
+    }
 }
