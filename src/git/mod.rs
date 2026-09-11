@@ -1,4 +1,5 @@
 pub mod cherry;
+pub mod conflict;
 mod repo;
 pub mod worktree;
 

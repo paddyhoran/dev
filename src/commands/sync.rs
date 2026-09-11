@@ -1,7 +1,9 @@
+use crate::editor;
 use crate::error::DevError;
+use crate::git::conflict::{self, Resolution};
 use crate::git::{Repo, cherry, worktree};
 use crate::picker::Prompter;
-use anyhow::{Result, bail};
+use anyhow::Result;
 
 /// A feature branch's oldest commit not yet merged into main — the one
 /// `sync` would apply next for that branch.
@@ -18,6 +20,20 @@ impl Candidate {
 }
 
 pub fn run(repo: &Repo, prompter: &dyn Prompter) -> Result<()> {
+    // Resolved eagerly, even though it's only needed on the conflict path —
+    // matches `commit`'s "you need $EDITOR configured to use this tool at
+    // all" posture, and keeps `run_with_editor` fully parameterized for
+    // tests without a lazy-resolution seam to also fake out.
+    let editor_bin = editor::resolve_editor()?;
+    run_with_editor(repo, prompter, &editor_bin)
+}
+
+/// The real flow, taking the editor binary as a parameter rather than
+/// reading `$EDITOR` itself — see `commands::commit::run_with_editor` for
+/// the same pattern and why (tests can't drive a real interactive editor
+/// headlessly, and mutating `$EDITOR` globally would race across parallel
+/// tests).
+pub fn run_with_editor(repo: &Repo, prompter: &dyn Prompter, editor_bin: &str) -> Result<()> {
     if !repo.is_on_main()? {
         return Err(DevError::NotOnMainBranch {
             command: "sync",
@@ -30,7 +46,7 @@ pub fn run(repo: &Repo, prompter: &dyn Prompter) -> Result<()> {
 
     let mut synced_any = false;
 
-    loop {
+    'outer: loop {
         let candidates = next_candidates(repo)?;
         if candidates.is_empty() {
             println!("dev sync: nothing to sync");
@@ -51,15 +67,17 @@ pub fn run(repo: &Repo, prompter: &dyn Prompter) -> Result<()> {
                 .run(&["cherry-pick", candidate.sha.as_str()])
                 .is_err()
             {
-                // 5a stub: real conflict resolution lands in 5b. For now,
-                // abort cleanly and stop rather than leaving a half-applied
-                // cherry-pick sitting in the working tree.
-                repo.git.run(&["cherry-pick", "--abort"]).ok();
-                bail!(
-                    "cherry-pick of `{}` from `{}` conflicted — resolve manually and re-run `dev sync`",
+                println!(
+                    "cherry-pick of `{}` from `{}` conflicted",
                     &candidate.sha[..7],
                     candidate.branch
                 );
+                if conflict::resolve_or_abort(repo, prompter, editor_bin, "cherry-pick")?
+                    == Resolution::Aborted
+                {
+                    println!("dev sync: stopping after an aborted cherry-pick");
+                    break 'outer;
+                }
             }
             repo.git.run(&["push"])?;
             synced_any = true;

@@ -99,10 +99,18 @@ correctly skips commits already merged in a previous `sync` run. This means:
 - You can run `sync` as many times as you like over the life of a feature —
   each run only picks up what's new since last time.
 - You don't need any separate bookkeeping (no "last merged commit" file to maintain).
+- Because it compares actual diffs, a commit you hand-resolve through a real conflict
+  may still show up as a candidate again afterward — your resolution rarely produces
+  a byte-identical patch to the original. That's expected, not a bug; just skip it if
+  it reappears with nothing new to offer.
 
-**If a cherry-pick conflicts**, right now `dev` aborts it and stops, telling you to resolve
-things manually and re-run `sync` — the older plan of opening `$EDITOR` to resolve the
-conflict in place and resume automatically isn't built yet.
+**If a cherry-pick conflicts**, `dev` opens `$EDITOR` on the repo so you can resolve
+the conflict markers yourself. Once you close the editor, it checks whether the
+conflicted files still contain markers; if not, it stages them and continues the
+cherry-pick automatically. If markers remain, it asks whether to open the editor
+again or give up — giving up aborts the cherry-pick and stops `sync` for this run
+(anything already synced before that point stays synced; you're still asked about
+`dev bump` if so).
 
 ### Setup requirement: gitignore `.worktrees/`
 
