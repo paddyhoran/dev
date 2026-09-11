@@ -1,8 +1,8 @@
 use anyhow::Result;
-use dialoguer::{Input, Select};
+use dialoguer::{Confirm, Input, MultiSelect, Select};
 
-/// Abstraction over `dev commit`'s interactive prompts. `dialoguer::Select`
-/// reads raw key events straight from a TTY, so it can't be driven by piping
+/// Abstraction over `dev`'s interactive prompts. `dialoguer`'s widgets read
+/// raw key events straight from a TTY, so they can't be driven by piping
 /// stdin to a subprocess — tests supply a scripted implementation instead of
 /// exercising `DialoguerPrompter` against a real terminal.
 pub trait Prompter {
@@ -12,6 +12,15 @@ pub trait Prompter {
 
     /// Offer `options` under `label` and return the one the user picked.
     fn select(&self, label: &str, options: &[String]) -> Result<String>;
+
+    /// Offer `options` as a checklist under `label` and return the indices
+    /// the user selected, in `options` order. An empty result (nothing
+    /// selected, confirmed as-is) is a valid "done for now" signal — callers
+    /// treat it that way rather than as an error.
+    fn select_many(&self, label: &str, options: &[String]) -> Result<Vec<usize>>;
+
+    /// A yes/no question, e.g. "run `dev bump` now?".
+    fn confirm(&self, message: &str) -> Result<bool>;
 }
 
 pub struct DialoguerPrompter;
@@ -34,6 +43,20 @@ impl Prompter for DialoguerPrompter {
             .default(0)
             .interact()?;
         Ok(options[idx].clone())
+    }
+
+    fn select_many(&self, label: &str, options: &[String]) -> Result<Vec<usize>> {
+        Ok(MultiSelect::new()
+            .with_prompt(label)
+            .items(options)
+            .interact()?)
+    }
+
+    fn confirm(&self, message: &str) -> Result<bool> {
+        Ok(Confirm::new()
+            .with_prompt(message)
+            .default(false)
+            .interact()?)
     }
 }
 

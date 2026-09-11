@@ -1,8 +1,23 @@
 use crate::error::DevError;
-use crate::git::Repo;
-use anyhow::Result;
+use crate::git::{Repo, cherry, worktree};
+use crate::picker::Prompter;
+use anyhow::{Result, bail};
 
-pub fn run(repo: &Repo) -> Result<()> {
+/// A feature branch's oldest commit not yet merged into main — the one
+/// `sync` would apply next for that branch.
+struct Candidate {
+    branch: String,
+    sha: String,
+    subject: String,
+}
+
+impl Candidate {
+    fn label(&self) -> String {
+        format!("{}: {} {}", self.branch, &self.sha[..7], self.subject)
+    }
+}
+
+pub fn run(repo: &Repo, prompter: &dyn Prompter) -> Result<()> {
     if !repo.is_on_main()? {
         return Err(DevError::NotOnMainBranch {
             command: "sync",
@@ -10,6 +25,71 @@ pub fn run(repo: &Repo) -> Result<()> {
         }
         .into());
     }
-    println!("dev sync: not implemented yet");
+
+    repo.git.run(&["fetch", "--all"])?;
+
+    let mut synced_any = false;
+
+    loop {
+        let candidates = next_candidates(repo)?;
+        if candidates.is_empty() {
+            println!("dev sync: nothing to sync");
+            break;
+        }
+
+        let labels: Vec<String> = candidates.iter().map(Candidate::label).collect();
+        let chosen =
+            prompter.select_many("Commits to sync (select none to stop for now)", &labels)?;
+        if chosen.is_empty() {
+            break;
+        }
+
+        for idx in chosen {
+            let candidate = &candidates[idx];
+            if repo
+                .git
+                .run(&["cherry-pick", candidate.sha.as_str()])
+                .is_err()
+            {
+                // 5a stub: real conflict resolution lands in 5b. For now,
+                // abort cleanly and stop rather than leaving a half-applied
+                // cherry-pick sitting in the working tree.
+                repo.git.run(&["cherry-pick", "--abort"]).ok();
+                bail!(
+                    "cherry-pick of `{}` from `{}` conflicted — resolve manually and re-run `dev sync`",
+                    &candidate.sha[..7],
+                    candidate.branch
+                );
+            }
+            repo.git.run(&["push"])?;
+            synced_any = true;
+        }
+    }
+
+    if synced_any && prompter.confirm("Run `dev bump` now?")? {
+        super::bump::run(repo)?;
+    }
+
     Ok(())
+}
+
+/// One candidate per feature branch: its oldest commit not yet merged into
+/// main, by patch content (`git cherry -v`) rather than SHA — see
+/// `git::cherry` for why that's the right comparison.
+fn next_candidates(repo: &Repo) -> Result<Vec<Candidate>> {
+    let main = repo.main_branch()?;
+    let features = worktree::list_features(&repo.git, &repo.root)?;
+
+    let mut candidates = Vec::new();
+    for feature in features {
+        let output = repo.git.run(&["cherry", "-v", &main, &feature.branch])?;
+        if let Some(oldest) = cherry::parse_unmerged(&output).into_iter().next() {
+            candidates.push(Candidate {
+                branch: feature.branch,
+                sha: oldest.sha,
+                subject: oldest.subject,
+            });
+        }
+    }
+    Ok(candidates)
 }

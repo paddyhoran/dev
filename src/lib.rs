@@ -22,7 +22,7 @@ pub fn run() -> Result<()> {
     match cli.command {
         Command::New { name } => commands::new::run(&repo, &name),
         Command::Commit => commands::commit::run(&repo, &DialoguerPrompter),
-        Command::Sync => commands::sync::run(&repo),
+        Command::Sync => commands::sync::run(&repo, &DialoguerPrompter),
         Command::Update => commands::update::run(&repo),
         Command::Bump => commands::bump::run(&repo),
         Command::Done => commands::done::run(&repo),

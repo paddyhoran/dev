@@ -69,6 +69,27 @@ impl Repo {
         let status = self.git.run(&["status", "--porcelain"])?;
         Ok(porcelain_has_unstaged_or_untracked(&status))
     }
+
+    /// Whether the worktree has *anything* uncommitted — staged, unstaged,
+    /// or untracked. Used by `dev bump`, which amends `HEAD` and so needs
+    /// nothing else present at all (unlike the narrower check above).
+    pub fn is_fully_clean(&self) -> Result<bool> {
+        let status = self.git.run(&["status", "--porcelain"])?;
+        Ok(relevant_porcelain_lines(&status).next().is_none())
+    }
+}
+
+/// `.worktrees/` is `dev`'s own reserved directory for feature worktrees
+/// (see `git::worktree`) — each entry under it is a separate, independently
+/// tracked worktree, not part of this worktree's uncommitted state. It's
+/// excluded from cleanliness checks unconditionally, rather than relying on
+/// the project's `.gitignore` also excluding it (easy to forget, and this
+/// tool created the directory in the first place).
+fn relevant_porcelain_lines(status: &str) -> impl Iterator<Item = &str> {
+    status.lines().filter(|line| {
+        let path = line.get(3..).unwrap_or("").trim_end_matches('/');
+        path != ".worktrees"
+    })
 }
 
 /// A `git status --porcelain` line is `XY <path>`, where `X` is the status
@@ -77,7 +98,7 @@ impl Repo {
 /// `has_unstaged_or_untracked_changes` so it's unit-testable against sample
 /// porcelain output without a real repo.
 fn porcelain_has_unstaged_or_untracked(status: &str) -> bool {
-    status.lines().any(|line| {
+    relevant_porcelain_lines(status).any(|line| {
         let code = line.as_bytes();
         code.first() == Some(&b'?') || code.get(1).is_some_and(|&y| y != b' ')
     })
@@ -113,5 +134,18 @@ mod tests {
     fn staged_plus_unstaged_on_same_file_is_flagged() {
         // Staged one hunk, then edited further without re-staging.
         assert!(porcelain_has_unstaged_or_untracked("MM both.txt"));
+    }
+
+    #[test]
+    fn dot_worktrees_directory_is_never_flagged() {
+        assert!(!porcelain_has_unstaged_or_untracked("?? .worktrees/"));
+        assert!(relevant_porcelain_lines("?? .worktrees/").next().is_none());
+    }
+
+    #[test]
+    fn dot_worktrees_does_not_mask_other_untracked_files() {
+        assert!(porcelain_has_unstaged_or_untracked(
+            "?? .worktrees/\n?? real-file.txt"
+        ));
     }
 }

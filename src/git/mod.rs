@@ -1,3 +1,4 @@
+pub mod cherry;
 mod repo;
 pub mod worktree;
 

@@ -77,31 +77,19 @@ need to start to move these changes to `main`.
 
 This is done by `dev sync`, this will scan all your feature branches and identify the next
 commit for each feature branch.  The commits available to be applied will be presented in 
-a picker for you to pick from.
+a checklist for you to pick from — pick as many as you like, they're applied oldest-first
+per branch. Leave everything unselected and confirm to stop for now.
 
-When you initially do this there will be no conflicts but as you start to sync commits from 
-feature branches in some conflicts will be created.  If conflicts exist they will be 
-indicated in the picker so you can continue to merge commits without conflicts as much as
-possible.
-
-If you merge a commit that conflicts with `main` then you will be asked to resolve these 
-conflicts using `$EDITOR`.
-
-Each time you successfully run the `sync` command `main` will be pushed to update the remote.
+Each commit you sync is cherry-picked onto `main` and **pushed immediately**, one at a
+time. `sync` does **not** bump the version or create a tag as it goes — once you're done
+syncing (either you've applied everything available, or you chose to stop), it asks once:
+"Run `dev bump` now?" Answering yes runs `dev bump` exactly as if you'd typed it yourself.
+Deferring it this way means one clean version bump covering everything you just synced,
+instead of a version bump interleaved after every single commit — and if you stop syncing
+without bumping, nothing is lost: every commit synced so far is already pushed, and
+`dev bump` can be run any time later.
 
 > `sync` will only work from `main`
-
-### Technical Approach
-
-For the commit on the feature branch selected by the user that hasn't already been merged 
-into `main`, this will:
-
-1. `git cherry-pick` the commit onto `main`.
-2. Run `cog bump --auto` (same version-sync logic as `just c` does today: sync
-   `Cargo.toml`, amend, re-tag).
-3. Push the commit and the new tag to `main`.
-
-It processes commits **oldest first, one at a time**.
 
 **"Already merged" is tracked by content, not by commit hash.** Cherry-picking creates a
 new commit (new SHA, same diff and message) on `main`. `sync` uses
@@ -112,8 +100,19 @@ correctly skips commits already merged in a previous `sync` run. This means:
   each run only picks up what's new since last time.
 - You don't need any separate bookkeeping (no "last merged commit" file to maintain).
 
-**If a cherry-pick conflicts**, `dev` stops and tells you to resolve the conflict and opens 
-$EDITOR, once done it runs `git cherry-pick --continue`and resumes exactly where it left off.
+**If a cherry-pick conflicts**, right now `dev` aborts it and stops, telling you to resolve
+things manually and re-run `sync` — the older plan of opening `$EDITOR` to resolve the
+conflict in place and resume automatically isn't built yet.
+
+### Setup requirement: gitignore `.worktrees/`
+
+Any project using `dev` **must** add `/.worktrees/` to its `.gitignore`. If it isn't
+ignored, `git status` reports it as untracked the moment any feature branch exists, which
+breaks `dev bump` outright — Cocogitto has its own untracked-files check that `dev` can't
+work around (the obvious-looking fix, `--skip-untracked`, actually makes it worse: cog
+tries to include the directory and crashes trying to add a nested worktree as a regular
+path). `dev commit`'s and `dev bump`'s own checks tolerate `.worktrees/` regardless, but
+Cocogitto doesn't, so the gitignore entry is required, not just tidy.
 
 ## 4 - Updating feature branches
 

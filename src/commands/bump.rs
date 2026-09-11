@@ -14,7 +14,7 @@ pub fn run(repo: &Repo) -> Result<()> {
         .into());
     }
 
-    if !repo.git.run(&["status", "--porcelain"])?.is_empty() {
+    if !repo.is_fully_clean()? {
         bail!("working tree is not clean — commit or stash changes before running `dev bump`");
     }
 

@@ -30,7 +30,11 @@ impl Fixture {
         run_git(&work, &["config", "user.email", "test@example.com"]);
         run_git(&work, &["config", "user.name", "Test"]);
         std::fs::write(work.join("README.md"), "test repo\n").expect("write README");
-        run_git(&work, &["add", "README.md"]);
+        // Any real project using `dev` needs this — `.worktrees/` must be
+        // gitignored so it's never untracked (see `dev::cog::bump_auto`'s
+        // doc comment for what goes wrong otherwise).
+        std::fs::write(work.join(".gitignore"), "/.worktrees/\n").expect("write .gitignore");
+        run_git(&work, &["add", "README.md", ".gitignore"]);
         run_git(&work, &["commit", "-m", "chore: initial commit"]);
         run_git(&work, &["push", "-u", "origin", "main"]);
 
@@ -61,6 +65,23 @@ impl Fixture {
         run_git(&self.work, args);
     }
 
+    /// Same, but in an arbitrary directory (e.g. a feature worktree under
+    /// `.worktrees/`) rather than the main working repo.
+    pub fn git_in(&self, cwd: &Path, args: &[&str]) {
+        run_git(cwd, args);
+    }
+
+    /// Create a feature worktree at `.worktrees/<name>` off the current
+    /// `main`, mirroring what `dev new` does, and return its path.
+    pub fn add_feature_worktree(&self, name: &str) -> PathBuf {
+        let path = self.work.join(".worktrees").join(name);
+        run_git(
+            &self.work,
+            &["worktree", "add", "-b", name, path_str(&path)],
+        );
+        path
+    }
+
     /// Write an executable shell script into the fixture and return its
     /// path, for use as the `editor` argument to `dev::editor::edit_template`.
     /// `body` receives the commit-message file's path as `$1`.
@@ -78,23 +99,46 @@ impl Fixture {
     }
 }
 
-/// A `Prompter` that returns a fixed issue number and a queue of canned
-/// `select()` answers, so `dev commit`'s flow can run headlessly in tests —
-/// `dialoguer::Select` itself needs a real TTY and can't be driven this way.
+/// A `Prompter` driven by canned answers, so `dev`'s interactive flows can
+/// run headlessly in tests — `dialoguer`'s widgets need a real TTY and can't
+/// be driven by piping stdin to a subprocess.
 pub struct ScriptedPrompter {
     issue_number: Option<u64>,
     selections: RefCell<VecDeque<String>>,
+    select_many_answers: RefCell<VecDeque<Vec<usize>>>,
+    confirm_answers: RefCell<VecDeque<bool>>,
     /// `(label, options)` for every `select()` call, in order — lets tests
     /// assert the picker was only ever offered the configured values.
     pub seen: RefCell<Vec<(String, Vec<String>)>>,
+    /// Same, for `select_many()` calls.
+    pub seen_many: RefCell<Vec<(String, Vec<String>)>>,
 }
 
 impl ScriptedPrompter {
+    /// For `dev commit`-style flows: a fixed issue number plus a queue of
+    /// canned `select()` answers.
     pub fn new(issue_number: Option<u64>, selections: &[&str]) -> Self {
         Self {
             issue_number,
             selections: RefCell::new(selections.iter().map(|s| s.to_string()).collect()),
+            select_many_answers: RefCell::new(VecDeque::new()),
+            confirm_answers: RefCell::new(VecDeque::new()),
             seen: RefCell::new(Vec::new()),
+            seen_many: RefCell::new(Vec::new()),
+        }
+    }
+
+    /// For `dev sync`-style flows: one entry in `select_many_answers` per
+    /// picker round (indices selected that round), and a queue of yes/no
+    /// answers for the end-of-run "run `dev bump` now?" confirm.
+    pub fn for_sync(select_many_answers: Vec<Vec<usize>>, confirm_answers: Vec<bool>) -> Self {
+        Self {
+            issue_number: None,
+            selections: RefCell::new(VecDeque::new()),
+            select_many_answers: RefCell::new(select_many_answers.into()),
+            confirm_answers: RefCell::new(confirm_answers.into()),
+            seen: RefCell::new(Vec::new()),
+            seen_many: RefCell::new(Vec::new()),
         }
     }
 }
@@ -111,7 +155,26 @@ impl Prompter for ScriptedPrompter {
         self.selections
             .borrow_mut()
             .pop_front()
-            .ok_or_else(|| anyhow::anyhow!("ScriptedPrompter: no scripted answer left"))
+            .ok_or_else(|| anyhow::anyhow!("ScriptedPrompter: no scripted select() answer left"))
+    }
+
+    fn select_many(&self, label: &str, options: &[String]) -> anyhow::Result<Vec<usize>> {
+        self.seen_many
+            .borrow_mut()
+            .push((label.to_string(), options.to_vec()));
+        self.select_many_answers
+            .borrow_mut()
+            .pop_front()
+            .ok_or_else(|| {
+                anyhow::anyhow!("ScriptedPrompter: no scripted select_many() answer left")
+            })
+    }
+
+    fn confirm(&self, _message: &str) -> anyhow::Result<bool> {
+        self.confirm_answers
+            .borrow_mut()
+            .pop_front()
+            .ok_or_else(|| anyhow::anyhow!("ScriptedPrompter: no scripted confirm() answer left"))
     }
 }
 
