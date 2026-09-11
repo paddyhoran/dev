@@ -23,7 +23,7 @@ pub fn run() -> Result<()> {
         Command::New { name } => commands::new::run(&repo, &name),
         Command::Commit => commands::commit::run(&repo, &DialoguerPrompter),
         Command::Sync => commands::sync::run(&repo, &DialoguerPrompter),
-        Command::Update => commands::update::run(&repo),
+        Command::Update => commands::update::run(&repo, &DialoguerPrompter),
         Command::Bump => commands::bump::run(&repo),
         Command::Done => commands::done::run(&repo),
     }

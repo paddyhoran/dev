@@ -128,8 +128,14 @@ Feature branches will continue independently to `main` and when `sync` is run it
 previous commits on the feature branch that have already been merged.
 
 However, you may want to update your feature branch to reflect the current `main`.  You do this
-by running `dev update` on a feature branch.  This rebases the branch onto the latest `main`
-and, once done, force-pushes the feature branch so the remote matches.
+by running `dev update` (alias `dev u`) on a feature branch.  This rebases the branch onto the
+latest `main` and, once done, force-pushes (safely — `--force-with-lease`, so it refuses if
+someone else pushed to your feature branch in the meantime) just that feature branch, never
+`main`.
+
+If the rebase conflicts, it's the same experience as a conflicting `sync`: `dev` opens
+`$EDITOR` on the repo so you can resolve it, then continues automatically once the conflict
+markers are gone, or aborts cleanly if you'd rather give up and try again later.
 
 ## 5 - Bumping version numbers
 
