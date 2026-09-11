@@ -45,7 +45,7 @@ pub fn resolve_or_abort(
     }
 
     loop {
-        editor::open_in_editor(editor, &repo.root)?;
+        editor::spawn_editor(editor, &repo.root)?;
 
         if !any_has_conflict_markers(repo, &conflicted) {
             let mut add_args = vec!["add"];

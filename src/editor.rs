@@ -12,12 +12,13 @@ pub fn resolve_editor() -> Result<String> {
         .context("$EDITOR is not set — `dev` needs it for this")
 }
 
-/// `sh -c '"$EDITOR" invocation "$1"'` so `$EDITOR` values containing flags
-/// (e.g. `"code --wait"`) still work; "dev-editor" fills the required `$0`
-/// slot. Shared by `edit_template` (a throwaway buffer) and `open_in_editor`
-/// (real files) — both just need the editor to run against some path and
-/// block until it exits.
-fn spawn_editor(editor: &str, path: &Path) -> Result<()> {
+/// Spawn `editor` on `path` and block until it exits. `sh -c '"$EDITOR"
+/// invocation "$1"'` so `$EDITOR` values containing flags (e.g.
+/// `"code --wait"`) still work; "dev-editor" fills the required `$0` slot.
+/// Used directly by the conflict-resolution flow (`git::conflict`), where
+/// the user edits real files in place; `edit_template` below wraps it for
+/// the throwaway-buffer case.
+pub fn spawn_editor(editor: &str, path: &Path) -> Result<()> {
     let path = path.to_str().context("path must be valid UTF-8")?;
     let status = Command::new("sh")
         .arg("-c")
@@ -52,13 +53,4 @@ pub fn edit_template(editor: &str, initial_contents: &str) -> Result<String> {
     spawn_editor(editor, &path)?;
 
     std::fs::read_to_string(&path).context("failed to read back commit message")
-}
-
-/// Open `editor` directly on `path` (e.g. the repo root, so the user can
-/// navigate to and resolve whichever files have conflict markers themselves)
-/// and wait for it to exit. Used by the conflict-resolution flow, where the
-/// user edits real files in place rather than a throwaway buffer that gets
-/// read back.
-pub fn open_in_editor(editor: &str, path: &Path) -> Result<()> {
-    spawn_editor(editor, path)
 }
